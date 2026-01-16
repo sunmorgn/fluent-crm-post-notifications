@@ -115,54 +115,71 @@ function render_settings_page() {
 
         <!-- Simple JS to handle Add/Remove rows -->
         <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                const tbody = document.getElementById('crpc_rules_tbody');
-                const addButton = document.getElementById('add_row');
+            jQuery(document).ready(function($) {
+                const tbody = $('#crpc_rules_tbody');
+                const addButton = $('#add_row');
 
                 // Template for new row (using PHP data)
-                const categories = <?php echo json_encode(array_map(function ($c) {
+                // Use safe fallback if arrays are empty
+                const categories = <?php echo !empty($categories) ? json_encode(array_values(array_map(function ($c) {
                                         return ['id' => $c->term_id, 'name' => $c->name];
-                                    }, $categories)); ?>;
-                const tags = <?php echo json_encode(array_map(function ($t) {
-                                    return ['id' => $t->id, 'title' => $t->title];
-                                }, $tags)); ?>;
+                                    }, $categories)), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) : '[]'; ?>;
 
-                addButton.addEventListener('click', function() {
-                    const index = tbody.querySelectorAll('tr:not(.empty-row)').length;
-                    const tr = document.createElement('tr');
+                const tags = <?php
+                                $tags_for_js = [];
+                                if (!empty($tags) && is_iterable($tags)) {
+                                    foreach ($tags as $t) {
+                                        $tags_for_js[] = ['id' => $t->id, 'title' => $t->title];
+                                    }
+                                }
+                                echo json_encode($tags_for_js, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+                                ?>;
+
+                addButton.on('click', function(e) {
+                    e.preventDefault();
+
+                    // Use timestamp to ensure unique index even if rows are deleted
+                    const index = new Date().getTime();
 
                     // Clear empty row message if exists
-                    const emptyRow = tbody.querySelector('.empty-row');
-                    if (emptyRow) emptyRow.remove();
+                    tbody.find('.empty-row').remove();
 
                     let catOptions = '<option value="">Select Category</option>';
-                    categories.forEach(c => catOptions += `<option value="${c.id}">${c.name}</option>`);
+                    if (categories.length > 0) {
+                        $.each(categories, function(i, c) {
+                            catOptions += '<option value="' + c.id + '">' + c.name + '</option>';
+                        });
+                    }
 
                     let tagOptions = '<option value="">Select Tag</option>';
-                    tags.forEach(t => tagOptions += `<option value="${t.id}">${t.title}</option>`);
+                    if (tags.length > 0) {
+                        $.each(tags, function(i, t) {
+                            tagOptions += '<option value="' + t.id + '">' + t.title + '</option>';
+                        });
+                    }
 
-                    tr.innerHTML = `
-						<td>
-							<select name="crpc_reading_rules[${index}][category_id]" style="width: 100%;">
-								${catOptions}
-							</select>
-						</td>
-						<td>
-							<select name="crpc_reading_rules[${index}][tag_id]" style="width: 100%;">
-								${tagOptions}
-							</select>
-						</td>
-						<td>
-							<button type="button" class="button remove-row">Remove</button>
-						</td>
-					`;
-                    tbody.appendChild(tr);
+                    var rowHtml = '<tr>' +
+                        '<td>' +
+                        '<select name="crpc_reading_rules[' + index + '][category_id]" style="width: 100%;">' +
+                        catOptions +
+                        '</select>' +
+                        '</td>' +
+                        '<td>' +
+                        '<select name="crpc_reading_rules[' + index + '][tag_id]" style="width: 100%;">' +
+                        tagOptions +
+                        '</select>' +
+                        '</td>' +
+                        '<td>' +
+                        '<button type="button" class="button remove-row">Remove</button>' +
+                        '</td>' +
+                        '</tr>';
+
+                    tbody.append(rowHtml);
                 });
 
-                tbody.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('remove-row')) {
-                        e.target.closest('tr').remove();
-                    }
+                tbody.on('click', '.remove-row', function(e) {
+                    e.preventDefault();
+                    $(this).closest('tr').remove();
                 });
             });
         </script>
