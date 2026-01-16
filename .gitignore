@@ -1,0 +1,14 @@
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE files
+.vscode/
+.idea/
+
+# Ignore logs
+debug.log
+error.log
+
+# Ignore composer deps (if we add them later)
+/vendor/
