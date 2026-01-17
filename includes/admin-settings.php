@@ -47,6 +47,16 @@ function render_settings_page() {
         $tags = \FluentCrmApi('tags')->all();
     }
 
+    // Get Email Templates
+    // Broaden search to include various statuses and potentially campaign templates if needed
+    $email_templates = get_posts([
+        'post_type'      => ['fc_template', 'fluentcrm_campaigntemplate'], // Include both types
+        'post_status'    => 'any', // In case they are 'draft' or 'private' or 'auto-draft'
+        'numberposts'    => -1,
+        'orderby'        => 'title',
+        'order'          => 'ASC'
+    ]);
+
 ?>
     <div class="wrap">
         <h1>FluentCRM Post Notifications</h1>
@@ -67,15 +77,16 @@ function render_settings_page() {
             <table class="widefat fixed" id="fcpn_rules_table" style="margin-bottom: 20px;">
                 <thead>
                     <tr>
-                        <th>Post Category</th>
-                        <th>Send To (FluentCRM Tag)</th>
-                        <th>Action</th>
+                        <th style="width: 30%;">Post Category</th>
+                        <th style="width: 30%;">Send To (FluentCRM Tag)</th>
+                        <th style="width: 30%;">Email Template (Optional)</th>
+                        <th style="width: 10%;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="fcpn_rules_tbody">
                     <?php if (empty($rules)) : ?>
                         <tr class="empty-row">
-                            <td colspan="3">No rules configured. Add one below.</td>
+                            <td colspan="4">No rules configured. Add one below.</td>
                         </tr>
                     <?php else : ?>
                         <?php foreach ($rules as $index => $rule) : ?>
@@ -96,6 +107,16 @@ function render_settings_page() {
                                         <?php foreach ($tags as $tag) : ?>
                                             <option value="<?php echo esc_attr($tag->id); ?>" <?php selected($rule['tag_id'], $tag->id); ?>>
                                                 <?php echo esc_html($tag->title); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select name="fcpn_rules[<?php echo $index; ?>][template_id]" style="width: 100%;">
+                                        <option value="">Default (Simple Text)</option>
+                                        <?php foreach ($email_templates as $tmpl) : ?>
+                                            <option value="<?php echo esc_attr($tmpl->ID); ?>" <?php echo (isset($rule['template_id']) && $rule['template_id'] == $tmpl->ID) ? 'selected' : ''; ?>>
+                                                <?php echo esc_html($tmpl->post_title); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -137,6 +158,16 @@ function render_settings_page() {
                                 echo json_encode($tags_for_js, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
                                 ?>;
 
+                const templates = <?php
+                                    $tmpls_for_js = [];
+                                    if (!empty($email_templates)) {
+                                        foreach ($email_templates as $t) {
+                                            $tmpls_for_js[] = ['id' => $t->ID, 'title' => $t->post_title];
+                                        }
+                                    }
+                                    echo json_encode($tmpls_for_js, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+                                    ?>;
+
                 addButton.on('click', function(e) {
                     e.preventDefault();
 
@@ -160,6 +191,13 @@ function render_settings_page() {
                         });
                     }
 
+                    let tmplOptions = '<option value="">Default (Simple Text)</option>';
+                    if (templates.length > 0) {
+                        $.each(templates, function(i, t) {
+                            tmplOptions += '<option value="' + t.id + '">' + t.title + '</option>';
+                        });
+                    }
+
                     var rowHtml = '<tr>' +
                         '<td>' +
                         '<select name="fcpn_rules[' + index + '][category_id]" style="width: 100%;">' +
@@ -169,6 +207,11 @@ function render_settings_page() {
                         '<td>' +
                         '<select name="fcpn_rules[' + index + '][tag_id]" style="width: 100%;">' +
                         tagOptions +
+                        '</select>' +
+                        '</td>' +
+                        '<td>' +
+                        '<select name="fcpn_rules[' + index + '][template_id]" style="width: 100%;">' +
+                        tmplOptions +
                         '</select>' +
                         '</td>' +
                         '<td>' +
