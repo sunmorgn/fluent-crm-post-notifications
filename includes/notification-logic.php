@@ -4,49 +4,46 @@ namespace FCPN\Logic;
 
 /**
  * Main Notification Processing Logic
- * Called by multiple hooks to ensure we catch the 'Publish' event
- * after terms are definitely saved.
+ * 
+ * This function is called by multiple hooks to ensure we catch the 'Publish' event
+ * after post categories are definitely saved. It checks if a published post matches
+ * any configured rules and sends email notifications to subscribers with matching tags.
+ * 
+ * @param WP_Post|int $post The post object or ID
+ * @param string $source The source of the call (for debugging)
  */
 function check_and_send_notification($post, $source = 'unknown') {
 
     // Ensure we have a WP_Post object
     $post = get_post($post);
-    if (! $post) return;
+    if (!$post) return;
 
-    // Trace
-    error_log("FCPN Debug: Processing Post {$post->ID} from source: {$source}");
-
-    // 1. Check Status
+    // Only process published posts
     if ($post->post_status !== 'publish' || $post->post_type !== 'post') {
-        error_log("FCPN Debug: Not published or not a post. Aborting.");
         return;
     }
 
-    // 2. Check duplicate protection (Meta Flag)
+    // Prevent duplicate sends using post meta flag
     if (get_post_meta($post->ID, '_fcpn_notification_sent', true)) {
-        error_log("FCPN Debug: Notification already sent for Post {$post->ID}. Skipping.");
         return;
     }
 
-    // 3. Check FluentCRM
-    if (! function_exists('\FluentCrmApi')) {
+    // Ensure FluentCRM is available
+    if (!function_exists('\FluentCrmApi')) {
         return;
     }
 
-    // 4. Load Rules
+    // Load notification rules
     $rules = get_option('fcpn_rules', []);
     if (empty($rules)) {
-        error_log("FCPN Debug: No rules configured. Aborting.");
         return;
     }
 
-    // 5. Check Categories (Explicitly fetch fresh)
+    // Get post categories (refresh cache to ensure we have latest data)
     clean_post_cache($post->ID);
     $current_cats = wp_get_post_categories($post->ID);
 
-    error_log("FCPN Debug: Categories found for Post {$post->ID}: " . print_r($current_cats, true));
-
-    // REWRITE THE RULE LOOP TO CAPTURE TEMPLATE
+    // Find matching rules and collect target tags
     $target_tag_ids = [];
     $selected_template_id = 0;
 
@@ -54,7 +51,7 @@ function check_and_send_notification($post, $source = 'unknown') {
         if (!empty($rule['category_id']) && in_array($rule['category_id'], $current_cats)) {
             if (!empty($rule['tag_id'])) {
                 $target_tag_ids[] = $rule['tag_id'];
-                // Capture template from the first matching rule that has one
+                // Use template from first matching rule that has one
                 if (empty($selected_template_id) && !empty($rule['template_id'])) {
                     $selected_template_id = $rule['template_id'];
                 }
@@ -65,65 +62,56 @@ function check_and_send_notification($post, $source = 'unknown') {
     $target_tag_ids = array_unique($target_tag_ids);
 
     if (empty($target_tag_ids)) {
-        error_log("FCPN Debug: No matching category rules matched. Aborting.");
         return;
     }
 
-    error_log("FCPN Debug: MATCH FOUND! Sending emails for Tags: " . implode(',', $target_tag_ids));
-
-    // 6. MARK AS SENT IMMEDIATELY to prevent double-send
+    // Mark as sent immediately to prevent duplicate sends
     update_post_meta($post->ID, '_fcpn_notification_sent', time());
 
-    /**
-     * Prepare Message Content (Template vs Default)
-     */
-    $is_html = false;
-    $base_message = '';
-    $subject = ''; // Initialize subject
+    // Prepare email content
+    $emailSubject = '';
+    $emailBody = '';
 
-    // Common Data
+    // Common post data
     $excerpt = get_the_excerpt($post);
-    if (empty($excerpt)) $excerpt = wp_trim_words($post->post_content, 20);
+    if (empty($excerpt)) {
+        $excerpt = wp_trim_words($post->post_content, 20);
+    }
     $permalink = get_permalink($post->ID);
     $blog_name = get_bloginfo('name');
 
-    // Fetch Template Content if selected
+    // Use template if selected
     if (!empty($selected_template_id)) {
         $tmpl_post = get_post($selected_template_id);
         if ($tmpl_post) {
-            $is_html = true;
-            $base_message = $tmpl_post->post_content;
+            $emailBody = $tmpl_post->post_content;
 
-            // Basic Replacements (Post Data)
+            // Replace post placeholders in template
             $replacements = [
-                '{{post_title}}'   => $post->post_title,
-                '{{post_link}}'    => $permalink,
-                '{{post_url}}'     => $permalink,
-                '{{post_excerpt}}' => $excerpt,
-                '{{post_content}}' => $post->post_content,
-                '{{featured_image_url}}' => get_the_post_thumbnail_url($post->ID, 'full'),
+                '{{post_title}}'         => $post->post_title,
+                '{{post_link}}'          => $permalink,
+                '{{post_url}}'           => $permalink,
+                '{{post_excerpt}}'       => $excerpt,
+                '{{post_content}}'       => $post->post_content,
+                '{{featured_image_url}}' => get_the_post_thumbnail_url($post->ID, 'full') ?: '',
             ];
 
             foreach ($replacements as $key => $val) {
-                $base_message = str_replace($key, (string)$val, $base_message);
+                $emailBody = str_replace($key, (string)$val, $emailBody);
             }
 
-            // Check for Subject override?
-            // Templates usually have a subject in `post_excerpt` or similar?
-            // FluentCRM Email Templates stores Subject in `post_excerpt`.
+            // Get subject from template excerpt
             if (!empty($tmpl_post->post_excerpt)) {
-                $subject = $tmpl_post->post_excerpt; // Use Template Subject
-                // Replace macros in subject too
+                $emailSubject = $tmpl_post->post_excerpt;
                 foreach ($replacements as $key => $val) {
-                    $subject = str_replace($key, (string)$val, $subject);
+                    $emailSubject = str_replace($key, (string)$val, $emailSubject);
                 }
             }
         }
     }
 
-    // Default Subject if not set by template
-    if (empty($subject)) {
-        // Get Display Name for Categories
+    // Generate default subject if not set by template
+    if (empty($emailSubject)) {
         $matching_category_names = [];
         foreach ($current_cats as $cat_id) {
             foreach ($rules as $rule) {
@@ -137,12 +125,14 @@ function check_and_send_notification($post, $source = 'unknown') {
         }
         $matching_category_names = array_unique($matching_category_names);
         $category_display_name = implode(' & ', $matching_category_names);
-        if (empty($category_display_name)) $category_display_name = 'Update';
+        if (empty($category_display_name)) {
+            $category_display_name = 'Update';
+        }
 
-        $subject = "New {$category_display_name}: " . $post->post_title;
+        $emailSubject = "New {$category_display_name}: " . $post->post_title;
     }
 
-    // Get Contacts
+    // Get subscribers with matching tags using direct SQL query
     global $wpdb;
     $table_subscribers = $wpdb->prefix . 'fc_subscribers';
     $table_pivot       = $wpdb->prefix . 'fc_subscriber_pivot';
@@ -157,89 +147,99 @@ function check_and_send_notification($post, $source = 'unknown') {
 
     $contacts = $wpdb->get_results($sql);
 
-    error_log("FCPN Debug: Contacts found (SQL): " . count($contacts));
-
     if (empty($contacts)) {
-        error_log("FCPN Debug: No contacts found for these tags.");
         return;
     }
 
+    // Send emails to each subscriber
     foreach ($contacts as $contact) {
         if (empty($contact->email)) continue;
 
-        // Final Message Preparation per Contact
-        $message = '';
-        $headers = [];
+        // Get full subscriber model for FluentCRM integration
+        $subscriber = \FluentCrm\App\Models\Subscriber::find($contact->id);
+        if (!$subscriber) continue;
 
-        if ($is_html) {
-            $headers[] = 'Content-Type: text/html; charset=UTF-8';
+        $finalBody = $emailBody;
 
-            // Ensure Footer exists (Compliance)
-            // If the template doesn't have a footer or unsubscribe link, append the default footer.
-            if (strpos($base_message, '##crm.email_footer##') === false && strpos($base_message, '##crm.manage_subscription_url##') === false) {
-                $base_message .= '<br/><hr/>##crm.email_footer##';
-            }
+        // Send templated HTML email
+        if (!empty($selected_template_id)) {
+            // Generate secure unsubscribe URL
+            $secure_hash = fluentCrmGetContactManagedHash($subscriber->id);
+            $unsubscribe_url = add_query_arg(array_filter([
+                'fluentcrm'   => 1,
+                'route'       => 'unsubscribe',
+                'secure_hash' => $secure_hash
+            ]), site_url('/'));
 
-            // Parse SmartCodes (including ##crm.manage_subscription_url##)
-            // We use the direct Parser class if available for reliability
-            if (class_exists('\FluentCrm\App\Services\Libs\Parser\Parser')) {
-                $message = \FluentCrm\App\Services\Libs\Parser\Parser::parse($base_message, $contact);
-            } else {
-                $message = apply_filters('fluent_crm/parse_campaign_email_message', $base_message, $contact);
-            }
+            // Get business name for footer
+            $business_settings = get_option('_fluentcrm_business_settings', []);
+            $business_name = !empty($business_settings['business_name'])
+                ? $business_settings['business_name']
+                : get_bloginfo('name');
+
+            // Build footer with unsubscribe link
+            $footer = '<br/><br/><hr style="border: none; border-top: 1px solid #ddd; margin: 40px 0;"/>';
+            $footer .= '<div style="font-size: 12px; color: #666; text-align: center;">';
+            $footer .= '<p>' . esc_html($business_name) . '</p>';
+            $footer .= '<p><a href="' . esc_url($unsubscribe_url) . '" style="color: #0073aa;">Unsubscribe from this list</a></p>';
+            $footer .= '</div>';
+
+            $finalBody .= $footer;
+
+            // Send HTML email
+            $headers = ['Content-Type: text/html; charset=UTF-8'];
+            wp_mail($subscriber->email, $emailSubject, $finalBody, $headers);
         } else {
-            // Fallback Text Logic
-            // Use FluentCRM's parser to generate the correct Manage Subscription URL
-            $unsubscribe_url = apply_filters('fluent_crm/parse_campaign_email_message', '##crm.manage_subscription_url##', $contact);
+            // Send plain text email (fallback when no template selected)
+            $unsubscribe_url = apply_filters('fluent_crm/parse_campaign_email_message', '##crm.manage_subscription_url##', $subscriber);
 
-            // Fallback if filter didn't work (returned raw code)
             if (strpos($unsubscribe_url, '##') !== false) {
-                $unsubscribe_url = site_url("?fluentcrm=1&route=unsubscribe&hash={$contact->hash}&contact_id={$contact->id}");
+                $unsubscribe_url = site_url("?fluentcrm=1&route=unsubscribe&hash={$subscriber->hash}&contact_id={$subscriber->id}");
             }
 
-            // Re-calculate category_display_name for text message if not already done for subject
-            if (!isset($category_display_name)) {
-                $matching_category_names = [];
-                foreach ($current_cats as $cat_id) {
-                    foreach ($rules as $rule) {
-                        if ($rule['category_id'] == $cat_id) {
-                            $term = get_term($cat_id);
-                            if (!is_wp_error($term)) {
-                                $matching_category_names[] = $term->name;
-                            }
+            // Get category name for message
+            $matching_category_names = [];
+            foreach ($current_cats as $cat_id) {
+                foreach ($rules as $rule) {
+                    if ($rule['category_id'] == $cat_id) {
+                        $term = get_term($cat_id);
+                        if (!is_wp_error($term)) {
+                            $matching_category_names[] = $term->name;
                         }
                     }
                 }
-                $matching_category_names = array_unique($matching_category_names);
-                $category_display_name = implode(' & ', $matching_category_names);
-                if (empty($category_display_name)) $category_display_name = 'Update';
+            }
+            $matching_category_names = array_unique($matching_category_names);
+            $category_display_name = implode(' & ', $matching_category_names);
+            if (empty($category_display_name)) {
+                $category_display_name = 'Update';
             }
 
-            $message  = "Hi " . (!empty($contact->first_name) ? $contact->first_name : 'Reader') . ",\n\n";
+            // Build plain text message
+            $message  = "Hi " . (!empty($subscriber->first_name) ? $subscriber->first_name : 'Reader') . ",\n\n";
             $message .= "A new post in {$category_display_name} has been published: " . $post->post_title . "\n";
             $message .= "Read it here: " . $permalink . "\n\n";
             $message .= $excerpt . "\n\n";
             $message .= "----------------\n";
             $message .= "You are receiving this because you signed up for {$category_display_name} updates from {$blog_name}.\n";
             $message .= "Manage Subscription: " . $unsubscribe_url . "\n";
+
+            wp_mail($subscriber->email, $emailSubject, $message);
         }
-
-        wp_mail($contact->email, $subject, $message, $headers);
     }
-
-    error_log("FCPN Debug: Emails sent to " . count($contacts) . " contacts.");
 }
 
 /**
- * Hook 1: REST API (Block Editor) - Fires after terms are saved
+ * Hook 1: REST API (Block Editor)
+ * Fires after post is inserted via REST API, ensuring categories are saved
  */
 add_action('rest_after_insert_post', function ($post, $request, $creating) {
     check_and_send_notification($post, 'rest_api');
 }, 10, 3);
 
 /**
- * Hook 2: Standard Transition (Classic Editor / Quick Edit)
- * Low priority to hope terms are saved?
+ * Hook 2: Post Status Transition (Classic Editor / Quick Edit)
+ * Fires when post status changes to 'publish'
  */
 add_action('transition_post_status', function ($new_status, $old_status, $post) {
     if ($new_status === 'publish' && $old_status !== 'publish') {
