@@ -48,8 +48,28 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
         return;
     }
 
+    // Determine Category Names (Collect ALL matching categories)
+    $matching_category_names = [];
+    foreach ($rules as $rule) {
+        if (!empty($rule['category_id']) && has_category($rule['category_id'], $post)) {
+            $cat = get_term($rule['category_id']);
+            if (!is_wp_error($cat) && !empty($cat)) {
+                $matching_category_names[] = $cat->name;
+            }
+        }
+    }
+
+    // Remove duplicates and join with " & "
+    $matching_category_names = array_unique($matching_category_names);
+    $category_display_name = implode(' & ', $matching_category_names);
+
+    // Fallback if something went wrong
+    if (empty($category_display_name)) {
+        $category_display_name = 'Update';
+    }
+
     // Prepare Email Data
-    $subject = "New Post: " . $post->post_title;
+    $subject = "New {$category_display_name}: " . $post->post_title;
     $blog_name = get_bloginfo('name');
 
     /**
@@ -82,11 +102,11 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
         }
 
         $message  = "Hi " . (!empty($contact->first_name) ? $contact->first_name : 'Reader') . ",\n\n";
-        $message .= "A new post has been published: " . $post->post_title . "\n";
+        $message .= "A new post in {$category_display_name} has been published: " . $post->post_title . "\n";
         $message .= "Read it here: " . get_permalink($post->ID) . "\n\n";
         $message .= $excerpt . "\n\n";
         $message .= "----------------\n";
-        $message .= "You are receiving this because you signed up for updates from {$blog_name}.\n";
+        $message .= "You are receiving this because you signed up for {$category_display_name} updates from {$blog_name}.\n";
         $message .= "Manage Subscription: " . $unsubscribe_url . "\n";
 
         // Send
