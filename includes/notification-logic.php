@@ -1,6 +1,6 @@
 <?php
 
-namespace CRPC\Notifications\Logic;
+namespace FCPN\Logic;
 
 /**
  * Send email notification when a post is published in a specific category.
@@ -19,8 +19,12 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
         return;
     }
 
-    // Get Rules
-    $rules = get_option('crpc_reading_rules', []);
+    // Get Rules - Try new name first, then fallback to old
+    $rules = get_option('fcpn_rules', []);
+    if (empty($rules)) {
+        $rules = get_option('crpc_reading_rules', []);
+    }
+
     if (empty($rules) || ! is_array($rules)) {
         return;
     }
@@ -45,17 +49,11 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
     }
 
     // Prepare Email Data
-    $subject = "New Reading Plan: " . $post->post_title;
+    $subject = "New Post: " . $post->post_title;
     $blog_name = get_bloginfo('name');
 
     /**
      * Send to each Tag group
-     * Loop through tags separately just in case we want to customize the message per tag later,
-     * but for now we could batch them. However, distinct tags might imply distinct user intents,
-     * so let's process them to ensure we hit everyone.
-     * 
-     * Note: If a user has MULTIPLE tags that we are targeting, they might get multiple emails.
-     * We should probably de-duplicate the USER list.
      */
 
     // Get all contacts in ANY of the tags
@@ -84,11 +82,11 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
         }
 
         $message  = "Hi " . (!empty($contact->first_name) ? $contact->first_name : 'Reader') . ",\n\n";
-        $message .= "A new post in the Reading Program has been published: " . $post->post_title . "\n";
+        $message .= "A new post has been published: " . $post->post_title . "\n";
         $message .= "Read it here: " . get_permalink($post->ID) . "\n\n";
         $message .= $excerpt . "\n\n";
         $message .= "----------------\n";
-        $message .= "You are receiving this because you signed up for {$blog_name} Reading Program updates.\n";
+        $message .= "You are receiving this because you signed up for updates from {$blog_name}.\n";
         $message .= "Manage Subscription: " . $unsubscribe_url . "\n";
 
         // Send

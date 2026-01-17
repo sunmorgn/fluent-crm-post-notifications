@@ -1,16 +1,16 @@
 <?php
 
-namespace CRPC\Notifications\Admin;
+namespace FCPN\Admin;
 
 /**
  * Register Settings Page
  */
 add_action('admin_menu', function () {
     add_options_page(
-        'Reading Program Notifications',
-        'Reading Program',
+        'FluentCRM Post Notifications',
+        'Post Notifications',
         'manage_options',
-        'crpc-reading-notifications',
+        'fluent-crm-post-notifications',
         __NAMESPACE__ . '\\render_settings_page'
     );
 });
@@ -19,7 +19,7 @@ add_action('admin_menu', function () {
  * Register Setting
  */
 add_action('admin_init', function () {
-    register_setting('crpc_reading_notifications_group', 'crpc_reading_rules');
+    register_setting('fcpn_settings_group', 'fcpn_rules');
 });
 
 /**
@@ -30,8 +30,18 @@ function render_settings_page() {
         return;
     }
 
-    // Get existing rules
-    $rules = get_option('crpc_reading_rules', []);
+    // Get existing rules - Default to empty array
+    $rules = get_option('fcpn_rules', []);
+
+    // BACKWARD COMPATIBILITY: Check for old option name if new one is empty
+    if (empty($rules)) {
+        $old_rules = get_option('crpc_reading_rules');
+        if (!empty($old_rules)) {
+            $rules = $old_rules;
+            // Optionally migrate: update_option('fcpn_rules', $old_rules);
+        }
+    }
+
     if (! is_array($rules)) {
         $rules = [];
     }
@@ -47,7 +57,7 @@ function render_settings_page() {
 
 ?>
     <div class="wrap">
-        <h1>Reading Program Notifications</h1>
+        <h1>FluentCRM Post Notifications</h1>
         <p>Configure which Post Categories should trigger emails to which FluentCRM Tags.</p>
 
         <?php if (! function_exists('FluentCrmApi')) : ?>
@@ -58,11 +68,11 @@ function render_settings_page() {
 
         <form action="options.php" method="post">
             <?php
-            settings_fields('crpc_reading_notifications_group');
-            do_settings_sections('crpc_reading_notifications_group');
+            settings_fields('fcpn_settings_group');
+            do_settings_sections('fcpn_settings_group');
             ?>
 
-            <table class="widefat fixed" id="crpc_rules_table" style="margin-bottom: 20px;">
+            <table class="widefat fixed" id="fcpn_rules_table" style="margin-bottom: 20px;">
                 <thead>
                     <tr>
                         <th>Post Category</th>
@@ -70,7 +80,7 @@ function render_settings_page() {
                         <th>Action</th>
                     </tr>
                 </thead>
-                <tbody id="crpc_rules_tbody">
+                <tbody id="fcpn_rules_tbody">
                     <?php if (empty($rules)) : ?>
                         <tr class="empty-row">
                             <td colspan="3">No rules configured. Add one below.</td>
@@ -79,7 +89,7 @@ function render_settings_page() {
                         <?php foreach ($rules as $index => $rule) : ?>
                             <tr>
                                 <td>
-                                    <select name="crpc_reading_rules[<?php echo $index; ?>][category_id]" style="width: 100%;">
+                                    <select name="fcpn_rules[<?php echo $index; ?>][category_id]" style="width: 100%;">
                                         <option value="">Select Category</option>
                                         <?php foreach ($categories as $cat) : ?>
                                             <option value="<?php echo esc_attr($cat->term_id); ?>" <?php selected($rule['category_id'], $cat->term_id); ?>>
@@ -89,7 +99,7 @@ function render_settings_page() {
                                     </select>
                                 </td>
                                 <td>
-                                    <select name="crpc_reading_rules[<?php echo $index; ?>][tag_id]" style="width: 100%;">
+                                    <select name="fcpn_rules[<?php echo $index; ?>][tag_id]" style="width: 100%;">
                                         <option value="">Select Tag</option>
                                         <?php foreach ($tags as $tag) : ?>
                                             <option value="<?php echo esc_attr($tag->id); ?>" <?php selected($rule['tag_id'], $tag->id); ?>>
@@ -116,7 +126,7 @@ function render_settings_page() {
         <!-- Simple JS to handle Add/Remove rows -->
         <script>
             jQuery(document).ready(function($) {
-                const tbody = $('#crpc_rules_tbody');
+                const tbody = $('#fcpn_rules_tbody');
                 const addButton = $('#add_row');
 
                 // Template for new row (using PHP data)
@@ -160,12 +170,12 @@ function render_settings_page() {
 
                     var rowHtml = '<tr>' +
                         '<td>' +
-                        '<select name="crpc_reading_rules[' + index + '][category_id]" style="width: 100%;">' +
+                        '<select name="fcpn_rules[' + index + '][category_id]" style="width: 100%;">' +
                         catOptions +
                         '</select>' +
                         '</td>' +
                         '<td>' +
-                        '<select name="crpc_reading_rules[' + index + '][tag_id]" style="width: 100%;">' +
+                        '<select name="fcpn_rules[' + index + '][tag_id]" style="width: 100%;">' +
                         tagOptions +
                         '</select>' +
                         '</td>' +
