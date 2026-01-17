@@ -16,11 +16,14 @@ define('FCPN_PATH', plugin_dir_path(__FILE__));
 define('FCPN_URL', plugin_dir_url(__FILE__));
 
 // Add Settings Link to Plugins Page
-add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links) {
-    $settings_link = '<a href="options-general.php?page=fluent-crm-post-notifications">Settings</a>';
-    array_unshift($links, $settings_link);
+// Add Settings Link to Plugins Page
+add_filter('plugin_action_links', function ($links, $file) {
+    if ($file === plugin_basename(__FILE__)) {
+        $settings_link = '<a href="options-general.php?page=fluent-crm-post-notifications">Settings</a>';
+        array_unshift($links, $settings_link);
+    }
     return $links;
-});
+}, 10, 2);
 
 // Include Admin Settings
 if (is_admin()) {

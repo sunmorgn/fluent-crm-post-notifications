@@ -21,9 +21,6 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
 
     // Get Rules - Try new name first, then fallback to old
     $rules = get_option('fcpn_rules', []);
-    if (empty($rules)) {
-        $rules = get_option('crpc_reading_rules', []);
-    }
 
     if (empty($rules) || ! is_array($rules)) {
         return;

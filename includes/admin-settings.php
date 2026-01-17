@@ -33,14 +33,6 @@ function render_settings_page() {
     // Get existing rules - Default to empty array
     $rules = get_option('fcpn_rules', []);
 
-    // BACKWARD COMPATIBILITY: Check for old option name if new one is empty
-    if (empty($rules)) {
-        $old_rules = get_option('crpc_reading_rules');
-        if (!empty($old_rules)) {
-            $rules = $old_rules;
-            // Optionally migrate: update_option('fcpn_rules', $old_rules);
-        }
-    }
 
     if (! is_array($rules)) {
         $rules = [];
